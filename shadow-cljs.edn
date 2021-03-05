@@ -1,0 +1,40 @@
+;; shadow-cljs configuration
+{:source-paths ["src" "test" "resources"]
+
+ :dependencies [[borkdude/sci "0.2.3"]
+                [funcool/promesa "6.0.0"]
+                [rewrite-cljs "0.4.5"]
+                [reagent "1.0.0"]
+                ; [rewrite-cljc "0.6.1"]
+                [check "0.2.0-SNAPSHOT"]
+                #_[org.pinkgorilla/gorilla-renderable-ui "0.1.33"]]
+
+ :dev-http {8080 {:root "target/test-js"
+                  :handler vision.test-helpers/http}}
+
+ :builds {:lib {:target :node-library
+                :output-to "target/index.js"
+                :exports {:index vision.core/exports}
+                :devtools {:preloads [vision.all-tests]}}
+          :tests {:target :browser-test
+                  :test-dir "target/test-js"
+                  :js-options {:resolve {"worker_threads" false
+                                         "supports-color" false
+                                         "tslib" false
+                                         "inspector" false}}
+                                         ; "path" {:target :file :file "src/js/path.js"}
+                                         ; "fs" {:target :npm :require "memfs"}
+                                         ; "stream" {:target :npm :require "stream-browserify"}
+                                         ; "constants" {:target :npm :require "constants-browserify"}
+                                         ; "os" {:target :npm :require "os-browserify"}
+                                         ; "process" {:target :file :file "src/js/process.js"}
+                                         ; "crypto" {:target :npm :require "crypto-browserify"}
+                                         ; "https" {:target :npm :require "https-browserify"}
+                                         ; "http" {:target :npm :require "http-browserify"}
+                                         ; "vm" {:target :npm :require "vm-browserify"}}}
+                  ; :devtools {:http-port 8080
+                  ;            :http-root "target/test-js"}
+
+                  :compiler-options {:output-feature-set :es-next}}}}
+
+                  ; :output-to "target/tests.js"}}}
