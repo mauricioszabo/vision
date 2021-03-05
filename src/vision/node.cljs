@@ -4,7 +4,6 @@
             ; [sci.impl.parser :as p]
             [edamame.core :as e]
             [rewrite-clj.zip :as zip]
-            [rewrite-clj.zip.base :as zip-base]
             [rewrite-clj.parser :as parser]
             [rewrite-clj.reader :as clj-reader]
             [rewrite-clj.node :as node]
@@ -12,17 +11,22 @@
             [rewrite-clj.node.stringz :as node-str]
             [rewrite-clj.node.token :as token]
             [rewrite-clj.node.whitespace :as whitespace]
-            [rewrite-clj.zip.base :as zip-base]
             [clojure.walk :as walk]
             ["webpack" :as webpack]
             ["memfs" :refer [createFsFromVolume Volume]]))
+
+; (def fs (js/require "fs"))
+
+; (. fs readdir "node_modules" prn)
+; (. fs stat "node_modules" #(def s %2))
+; (. fs readlink "/tmp/log.lnk" #(def s2 %2))
+; (.isFile s)
 
 ;; To implement a filesystem, you'll need:
 ;; readFile
 ;; stat
 ;; readlink
 ;; readdir
-#_
 (defn bundle
   "Bundles a bunch of Javascript files with webpack, and return a single
 Javascript content. Opts is:
@@ -33,24 +37,52 @@ Javascript content. Opts is:
   (let [fake-fs (createFsFromVolume (Volume.))
         a (webpack (clj->js {:mode "production"
                              :entry first-file
+                             :resolve {:fallback {:worker_threads false
+                                                  :path "path-browserify"
+                                                  :stream "stream-browserify"
+                                                  :fs "memfs"
+                                                  :constants "constants-browserify"
+                                                  :os "os-browserify"
+                                                  :child_process false
+                                                  :crypto "crypto-browserify"
+                                                  :https "https-browserify"
+                                                  :http "http-browserify"
+                                                  :vm "vm-browserify"}}
                              :output {:path "/tmp/dist"
                                       :library {:type "var"
                                                 :name "entry"}
                                       :filename "bundle.js"}}))]
     (aset a "outputFileSystem" fake-fs)
-    (when-let [input (:input-fs opts)] (aset a "inputFileSystem" input))
+    (when-let [input (:input-fs opts)] (aset a "inputFileSystem" (clj->js input)))
     (js/Promise. (fn [resolve fail]
-                   (.run a (fn [err succ] (if err
-                                            (fail err)
-                                            (resolve (.. fake-fs
-                                                         (readFileSync "/tmp/dist/bundle.js")
-                                                         toString)))))))))
+                   (.run a (fn [err succ]
+                             (prn :ERR err)
+                             (prn :SUCC succ)
+                             (if err
+                               (fail err)
+                               (resolve (.. fake-fs
+                                            (readFileSync "/tmp/dist/bundle.js")
+                                            toString)))))))))
 
+#_
+(.then (bundle "webpack" {})
+       #(def res %))
+
+#_
+(count res)
+
+#_
+(.writeFileSync
+ (js/require "fs")
+ "/tmp/wpack.js"
+ res)
+
+#_
+(bundle "vega-embed" {})
 
 (def s
-  "(def b (js/require \"foo\"))
-
-(def a (do (js/require \"lol\")) :foo/bar)")
+  "(def b (js/require \"vega-embed\"))
+")
 
 (defn walk
   "Exactly the same as clojure.walk/walk, except that it resolves promises"
@@ -58,8 +90,7 @@ Javascript content. Opts is:
   (p/let [form form]
     (cond
       (list? form)
-      (p/let [res (p/all form)
-              res (p/all (map inner res))]
+      (p/let [res (p/all (map #(p/let [e %] (inner e)) form))]
         (outer (apply list res)))
 
       (map-entry? form)
@@ -70,19 +101,20 @@ Javascript content. Opts is:
         (outer (MapEntry. k v nil)))
 
       (seq? form)
-      (p/let [res (p/all form)
-              res (p/all (map inner res))]
+      (p/let [res (p/all (map #(p/let [e %] (inner e)) form))]
         (outer res))
 
       (record? form)
-      (outer (reduce (fn [r x]
-                       (p/let [r r
-                               v (inner x)]
-                         (conj r v)))
-                     form form))
+      (p/let [res (reduce (fn [r x]
+                            (p/let [r r
+                                    x x
+                                    v (inner x)]
+                              (conj r v)))
+                          form form)]
+        (outer res))
 
       (coll? form)
-      (p/let [res (p/all (map inner form))]
+      (p/let [res (p/all (map #(p/let [e %] (inner e)) form))]
         (outer (into (empty form) res)))
 
       :else
@@ -90,7 +122,7 @@ Javascript content. Opts is:
 
 (defn- cut [a]
   (let [a (pr-str a)]
-    (cond-> a (-> a count (> 200)) (subs 0 200))))
+    (cond-> a (-> a count (> 50)) (subs 0 50))))
 #_
 (p/let [elems (->> s
                    parser/parse-string-all
@@ -105,7 +137,6 @@ Javascript content. Opts is:
 
 
 (defn postwalk [fun form]
-  ; (walk (partial postwalk #(p/let [res %] (fun res))) fun form)
   (walk (partial postwalk fun) fun form))
 
 #_
@@ -125,41 +156,26 @@ Javascript content. Opts is:
     (sci/parse-next ctx r)))
 
 
-(defn- transform-require [req]
-  (let [node-file (->> req
-                       :children
-                       (map :lines)
-                       (filter identity)
-                       ffirst)]
-    (assoc req :children [(token/token-node 'js/require*)
+(defn- transform-require [req opts]
+  (p/let [node-file (->> req
+                         :children
+                         (map :lines)
+                         (filter identity)
+                         ffirst)
+          file-contents (bundle node-file opts)]
+    (assoc req :children [(token/token-node 'js/eval)
                           (whitespace/whitespace-node " ")
-                          (node-str/string-node node-file)])))
+                          (node-str/string-node file-contents)])))
 
-#_
-(p/let [elems (->> s
-                   parser/parse-string-all
-                   (postwalk (fn [a]
-                               (prn :a a)
-                               (if (and (-> a :tag (= :list))
-                                        (-> a :children first :value (= 'js/require)))
-                                 (transform-require a)
-                                 a))))]
-  (-> elems
-      str
-      println))
-     ; str
-     ; println)
-       ; str))
-; (node/list-node [])
-; (node/replace-children)
-; (-> f :children first zip/f)
-; (zip/node f)
-
-; (def a (zip/of-string "(def b (js/require 'foo))
-;
-; (def a (do (js/require \"lol\")) ::foo/bar)"))
-; (->> (zip-base/child-sexprs a))
-;      ; first)
+(defn bundle-cljs [code opts]
+  (p/let [elems (->> s
+                     parser/parse-string-all
+                     (postwalk (fn [a]
+                                 (if (and (-> a :tag (= :list))
+                                          (-> a :children first :value (= 'js/require)))
+                                   (transform-require a opts)
+                                   a))))]
+    (str elems str)))
 
 (defn- js-namespace [bundlers]
   (let [accumulate-file #(swap! bundlers conj %)]
