@@ -22,6 +22,7 @@
                                          "supports-color" false
                                          "tslib" false
                                          "inspector" false}}
+                                         ; "chokidar" false}}
                                          ; "path" {:target :file :file "src/js/path.js"}
                                          ; "fs" {:target :npm :require "memfs"}
                                          ; "stream" {:target :npm :require "stream-browserify"}
