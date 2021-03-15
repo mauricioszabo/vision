@@ -1,7 +1,5 @@
 (ns vision.core
-  (:require [sci.core :as sci]))
+  (:require [vision.node :as node]))
 
-(defn render [selector hiccup]
-  ())
-(def foo 10)
-(def exports #js {:foo foo})
+(def exports #js {:bundle_cljs node/bundle-cljs
+                  :bundle_js node/bundle!})
